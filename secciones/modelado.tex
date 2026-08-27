@@ -1,0 +1,153 @@
+\section{Modelado de datos}
+
+El modelo se diseñó siguiendo un enfoque orientado a consultas. En una base de familia de columnas como Cassandra, la estructura de las tablas está estrechamente relacionada con los patrones de acceso que se quieren resolver; cambiar las consultas importantes puede requerir modificar el diseño de las familias de columnas. \parencite[cap.~10, pp.~98--109]{sadalage2012}
+
+En este trabajo se definieron dos preguntas principales:
+\begin{enumerate}[label=\arabic*.]
+    \item ¿Qué midió una estación durante un mes?
+    \item ¿Qué mediciones hubo en todas las estaciones durante un mes?
+\end{enumerate}
+
+Estas preguntas dieron lugar a dos tablas con distintas \emph{partition keys}. Las mismas observaciones se almacenan con dos organizaciones diferentes, una decisión deliberada de desnormalización para favorecer los patrones de consulta definidos.
+
+\subsection{Keyspace y entorno}
+
+Se creó el keyspace \texttt{inumet} con una configuración sencilla para el entorno local de un único nodo:
+
+\begin{lstlisting}[language=CQL]
+CREATE KEYSPACE IF NOT EXISTS inumet
+WITH REPLICATION = {
+  'class': 'SimpleStrategy',
+  'replication_factor': 1
+};
+\end{lstlisting}
+
+El factor de replicación 1 corresponde exclusivamente al entorno local utilizado para la evaluación y no pretende representar una configuración productiva.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/01_keyspace.png}
+    \caption{Creación y verificación del keyspace \texttt{inumet}. La captura también muestra Cassandra 5.0.9 y cqlsh 6.2.0.}
+    \label{fig:keyspace}
+\end{figure}
+
+\subsection{Tabla 1: mediciones por estación y mes}
+
+La primera tabla responde la pregunta: \textbf{¿qué midió una estación durante un mes?}
+
+\begin{lstlisting}[language=CQL]
+CREATE TABLE IF NOT EXISTS mediciones_por_estacion_mes (
+  estacion_id TEXT,
+  anio INT,
+  mes INT,
+  fecha_hora TIMESTAMP,
+  temp_aire FLOAT,
+  hum_relativa INT,
+  precip_horario FLOAT,
+  PRIMARY KEY ((estacion_id, anio, mes), fecha_hora)
+)
+WITH CLUSTERING ORDER BY (fecha_hora ASC);
+\end{lstlisting}
+
+La \emph{partition key} es \texttt{(estacion\_id, anio, mes)}. De esta manera, las observaciones de una estación se separan por año y mes, evitando que toda su historia quede dentro de una única partición. La \emph{clustering key} es \texttt{fecha\_hora}, por lo que las filas de cada partición quedan organizadas cronológicamente y pueden consultarse por rangos temporales.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/02_tabla1.png}
+    \caption{Definición y descripción de la tabla \texttt{mediciones\_por\_estacion\_mes}.}
+    \label{fig:tabla1}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=8mm,
+    box/.style={draw,rounded corners,minimum width=4.5cm,minimum height=8mm,align=center},
+    row/.style={draw,minimum width=4.5cm,minimum height=6mm,align=center},
+    arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[box,fill=gray!10] (pk) {Partition key\\\texttt{(estacion\_id, anio, mes)}};
+\node[box,below=of pk] (part) {Partición: Rocha G3 + 2025 + enero};
+\node[row,below=of part] (r1) {2025-01-01 00:00};
+\node[row,below=2mm of r1] (r2) {2025-01-01 01:00};
+\node[row,below=2mm of r2] (r3) {\dots};
+\node[row,below=2mm of r3] (r4) {2025-01-31 23:00};
+\draw[arrow] (pk) -- (part);
+\draw[arrow] (part) -- node[right]{\small clustering: \texttt{fecha\_hora}} (r1);
+\end{tikzpicture}
+\caption{Organización conceptual de la Tabla 1: una partición agrupa una estación y un mes, y \texttt{fecha\_hora} ordena las observaciones.}
+\label{fig:diag-tabla1}
+\end{figure}
+
+\subsection{Tabla 2: mediciones de todas las estaciones por mes}
+
+La segunda tabla responde la pregunta: \textbf{¿qué mediciones hubo en todas las estaciones durante un mes?}
+
+\begin{lstlisting}[language=CQL]
+CREATE TABLE IF NOT EXISTS mediciones_por_mes (
+  anio INT,
+  mes INT,
+  estacion_id TEXT,
+  fecha_hora TIMESTAMP,
+  temp_aire FLOAT,
+  hum_relativa INT,
+  precip_horario FLOAT,
+  PRIMARY KEY ((anio, mes), estacion_id, fecha_hora)
+)
+WITH CLUSTERING ORDER BY (
+  estacion_id ASC,
+  fecha_hora ASC
+);
+\end{lstlisting}
+
+La \emph{partition key} es \texttt{(anio, mes)}, por lo que todas las observaciones correspondientes a un mes quedan accesibles desde una misma partición. La primera \emph{clustering key}, \texttt{estacion\_id}, organiza las filas por estación. La segunda, \texttt{fecha\_hora}, ordena cronológicamente las observaciones dentro de cada estación. Esta jerarquía también condiciona las consultas: para realizar naturalmente un rango sobre \texttt{fecha\_hora} en esta tabla, primero se restringe \texttt{estacion\_id}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/04_tabla2.png}
+    \caption{Definición y descripción de la tabla \texttt{mediciones\_por\_mes}.}
+    \label{fig:tabla2}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=7mm,
+    box/.style={draw,rounded corners,minimum width=5cm,minimum height=8mm,align=center},
+    station/.style={draw,minimum width=4.4cm,minimum height=7mm,align=center},
+    arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[box,fill=gray!10] (pk) {Partition key\\\texttt{(anio, mes)}};
+\node[box,below=of pk] (part) {Partición: 2025 + enero};
+\node[station,below left=8mm and 5mm of part] (s1) {Aeropuerto Melilla G3\\\small fechas ordenadas};
+\node[station,below=8mm of part] (s2) {Rocha G3\\\small fechas ordenadas};
+\node[station,below right=8mm and 5mm of part] (s3) {Salto G3\\\small fechas ordenadas};
+\draw[arrow] (pk) -- (part);
+\draw[arrow] (part) -- (s1);
+\draw[arrow] (part) -- node[right]{\small \texttt{estacion\_id} $\rightarrow$ \texttt{fecha\_hora}} (s2);
+\draw[arrow] (part) -- (s3);
+\end{tikzpicture}
+\caption{Organización conceptual de la Tabla 2: el mes define la partición y las clustering keys ordenan primero por estación y luego por fecha.}
+\label{fig:diag-tabla2}
+\end{figure}
+
+\subsection{Query-driven modeling y desnormalización}
+
+Las dos tablas contienen esencialmente las mismas observaciones, pero con claves distintas. Esto no se trató como una duplicación accidental, sino como una consecuencia del modelado orientado a consultas. La Tabla 1 optimiza la consulta de una estación y un mes; la Tabla 2 optimiza la consulta de todas las estaciones de un mes. En comparación con el modelo relacional, CQL mantiene una sintaxis familiar pero no ofrece \texttt{JOIN} ni subconsultas y suele trabajar con condiciones sencillas alineadas con las claves. \parencite[cap.~10, pp.~105--109]{sadalage2012}
+
+\begin{table}[H]
+\centering
+\caption{Comparación de las dos tablas del modelo.}
+\label{tab:modelo}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{3.2cm}XX}
+\toprule
+ & Tabla 1 & Tabla 2 \\
+\midrule
+Nombre & \texttt{mediciones\_por\_estacion\_mes} & \texttt{mediciones\_por\_mes} \\
+Pregunta & Una estación durante un mes & Todas las estaciones durante un mes \\
+Partition key & \texttt{(estacion\_id, anio, mes)} & \texttt{(anio, mes)} \\
+Clustering keys & \texttt{fecha\_hora} & \texttt{estacion\_id, fecha\_hora} \\
+Orden & cronológico & estación y luego cronológico \\
+\bottomrule
+\end{tabularx}
+\end{table}
