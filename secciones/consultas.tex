@@ -1,0 +1,299 @@
+\section{Consultas y operaciones}
+
+Se ejecutaron diez consultas y operaciones significativas, combinando acceso por partition key, rangos por clustering key, múltiples particiones, agregaciones, TTL y tres operaciones de profundización investigadas en la documentación oficial de Apache Cassandra.
+
+\begin{table}[H]
+\centering
+\caption{Resumen de las consultas Q1--Q10.}
+\label{tab:consultas}
+\begin{tabularx}{\linewidth}{c>{\raggedright\arraybackslash}p{4.2cm}X}
+\toprule
+\textbf{Q} & \textbf{Operación} & \textbf{Finalidad} \\
+\midrule
+Q1 & SELECT por partition key & Consultar una estación durante un mes. \\
+Q2 & Rango por clustering key & Consultar un día dentro de la partición mensual. \\
+Q3 & Segunda tabla & Consultar todas las estaciones de un mes. \\
+Q4 & IN & Consultar varios meses de una estación. \\
+Q5 & COUNT & Contar observaciones de una partición. \\
+Q6 & AVG & Calcular temperatura promedio. \\
+Q7 & UPDATE USING TTL & Aplicar expiración a un valor actualizado. \\
+Q8 & GROUP BY + AVG & Promedio por estación dentro de un mes. \\
+Q9 & PER PARTITION LIMIT & Limitar filas por cada partición consultada. \\
+Q10 & BATCH & Agrupar escrituras de una misma observación en ambas tablas. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Q1 --- SELECT por partition key}
+
+\textbf{Pregunta:} ¿Cuáles fueron algunas mediciones de Rocha G3 durante enero de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT fecha_hora, temp_aire, hum_relativa, precip_horario
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'Rocha G3'
+  AND anio = 2025
+  AND mes = 1
+LIMIT 10;
+\end{lstlisting}
+
+La consulta especifica completa la partition key \texttt{(estacion\_id, anio, mes)}, por lo que Cassandra accede directamente a la partición correspondiente a Rocha G3 en enero de 2025. La utilidad práctica es recuperar rápidamente las observaciones de una estación en un período mensual.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\figwidth]{imagenes/capturas/18_q1.png}
+\caption{Q1: resultado de la consulta por partition key para Rocha G3 durante enero de 2025.}
+\end{figure}
+
+\subsection{Q2 --- Rango usando clustering key}
+
+\textbf{Pregunta:} ¿Qué mediciones hubo en Rocha G3 durante el 10 de enero de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT fecha_hora, temp_aire, hum_relativa, precip_horario
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'Rocha G3'
+  AND anio = 2025
+  AND mes = 1
+  AND fecha_hora >= '2025-01-10 00:00:00'
+  AND fecha_hora <  '2025-01-11 00:00:00';
+\end{lstlisting}
+
+La partition key localiza el mes y la clustering key \texttt{fecha\_hora} recorta el rango temporal correspondiente al día 10. Esta consulta muestra por qué la elección de \texttt{fecha\_hora} como clustering key es útil para series temporales.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\figwidth]{imagenes/capturas/19_q2.png}
+\caption{Q2: mediciones de Rocha G3 durante el 10 de enero de 2025 mediante un rango sobre \texttt{fecha\_hora}.}
+\end{figure}
+
+\subsection{Q3 --- Uso de la segunda tabla}
+
+\textbf{Pregunta:} ¿Qué mediciones hubo en todas las estaciones durante enero de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT estacion_id, fecha_hora, temp_aire,
+       hum_relativa, precip_horario
+FROM mediciones_por_mes
+WHERE anio = 2025
+  AND mes = 1
+LIMIT 20;
+\end{lstlisting}
+
+La segunda tabla existe específicamente para esta consulta. Su partition key \texttt{(anio, mes)} permite recuperar las observaciones del mes y las clustering keys organizan el resultado por estación y fecha. La consulta demuestra el enfoque de query-driven modeling empleado.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\figwidth]{imagenes/capturas/20_q3.png}
+\caption{Q3: primeras observaciones de todas las estaciones en enero de 2025 desde \texttt{mediciones\_por\_mes}.}
+\end{figure}
+
+\subsection{Q4 --- Consulta de múltiples particiones con IN}
+
+\textbf{Pregunta:} ¿Qué mediciones tuvo Rocha G3 durante enero, febrero y marzo de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT estacion_id, anio, mes, fecha_hora, temp_aire
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'Rocha G3'
+  AND anio = 2025
+  AND mes IN (1, 2, 3)
+LIMIT 30;
+\end{lstlisting}
+
+Como \texttt{mes} forma parte de la partition key compuesta, la cláusula \texttt{IN} solicita tres particiones mensuales: enero, febrero y marzo. Debido al \texttt{LIMIT 30}, la captura visible contiene las primeras 30 filas y estas pertenecen al primer mes devuelto. La operación sigue mostrando el uso de \texttt{IN} para indicar explícitamente varias particiones, pero debe emplearse con criterio cuando el número de particiones crece.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\figwidth]{imagenes/capturas/21_q4.png}
+\caption{Q4: consulta con \texttt{mes IN (1,2,3)}. El límite global hace que la muestra visible corresponda al comienzo del resultado.}
+\end{figure}
+
+\subsection{Q5 --- COUNT}
+
+\textbf{Pregunta:} ¿Cuántas mediciones tiene Rocha G3 en enero de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT COUNT(*) AS cantidad_mediciones
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'Rocha G3'
+  AND anio = 2025
+  AND mes = 1;
+\end{lstlisting}
+
+\texttt{COUNT(*)} determinó que la partición contiene \textbf{744 observaciones}. La utilidad es verificar el volumen de mediciones almacenadas para una estación y período concretos.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\linewidth]{imagenes/capturas/22_q5.png}
+\caption{Q5: conteo de 744 observaciones para Rocha G3 en enero de 2025.}
+\end{figure}
+
+\subsection{Q6 --- AVG}
+
+\textbf{Pregunta:} ¿Cuál fue la temperatura promedio registrada en Rocha G3 durante enero de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT AVG(temp_aire) AS temperatura_promedio
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'Rocha G3'
+  AND anio = 2025
+  AND mes = 1;
+\end{lstlisting}
+
+El resultado obtenido fue aproximadamente \textbf{21,78656 °C}. Esta operación responde una pregunta meteorológica concreta utilizando una agregación sobre una partición bien delimitada.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\linewidth]{imagenes/capturas/23_q6.png}
+\caption{Q6: temperatura promedio de Rocha G3 durante enero de 2025.}
+\end{figure}
+
+\subsection{Q7 --- UPDATE USING TTL}
+
+\textbf{Finalidad:} demostrar que un \texttt{UPDATE USING TTL} puede asignar expiración al valor actualizado y comprobar el tiempo restante mediante \texttt{TTL()}.
+
+Primero se insertó una fila sintética sin TTL:
+
+\begin{lstlisting}[language=CQL]
+INSERT INTO mediciones_por_estacion_mes (
+  estacion_id, anio, mes, fecha_hora,
+  temp_aire, hum_relativa, precip_horario
+)
+VALUES (
+  'PRUEBA_UTEC_C7', 2025, 1,
+  '2025-01-15 14:00:00', 25.0, 60, 0.0
+);
+\end{lstlisting}
+
+Luego se actualizó únicamente \texttt{temp\_aire}, asignándole un TTL de 60 segundos:
+
+\begin{lstlisting}[language=CQL]
+UPDATE mediciones_por_estacion_mes
+USING TTL 60
+SET temp_aire = 26.5
+WHERE estacion_id = 'PRUEBA_UTEC_C7'
+  AND anio = 2025
+  AND mes = 1
+  AND fecha_hora = '2025-01-15 14:00:00';
+\end{lstlisting}
+
+Finalmente se consultó el valor junto con su TTL restante:
+
+\begin{lstlisting}[language=CQL]
+SELECT temp_aire,
+       TTL(temp_aire),
+       hum_relativa,
+       TTL(hum_relativa)
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'PRUEBA_UTEC_C7'
+  AND anio = 2025
+  AND mes = 1
+  AND fecha_hora = '2025-01-15 14:00:00';
+\end{lstlisting}
+
+La evidencia muestra que la temperatura quedó en 26.5 y que \texttt{TTL(temp\_aire)} devolvió 51 segundos restantes. En cambio, la humedad permaneció en 60 y \texttt{TTL(hum\_relativa)} devolvió \texttt{null}. Esto confirma que el TTL se aplicó únicamente al valor actualizado en esa operación; el tiempo restante es menor que 60 porque disminuye con el paso de los segundos.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\linewidth]{imagenes/capturas/24_q7.png}
+\caption{Q7: actualización de \texttt{temp\_aire} con TTL de 60 segundos y comprobación del tiempo restante mediante \texttt{TTL()}.}
+\end{figure}
+
+\subsection{Q8 --- GROUP BY + AVG \texorpdfstring{\,(profundización)}{ (profundización)}}
+
+\textbf{Pregunta:} ¿Cuál fue la temperatura promedio de cada estación durante enero de 2025?
+
+\begin{lstlisting}[language=CQL]
+SELECT estacion_id,
+       AVG(temp_aire) AS temperatura_promedio
+FROM mediciones_por_mes
+WHERE anio = 2025
+  AND mes = 1
+GROUP BY estacion_id;
+\end{lstlisting}
+
+La consulta obtuvo un promedio independiente para cada una de las siete estaciones. En Cassandra, \texttt{GROUP BY} no es un agrupamiento libre como en SQL relacional: solo puede agrupar a nivel de partition key o clustering columns y debe respetar el orden de la primary key; las columnas restringidas por igualdad no necesitan repetirse en \texttt{GROUP BY}. \parencite{cassandra_dml}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.76\linewidth]{imagenes/capturas/25_q8.png}
+\caption{Q8: temperatura promedio por estación durante enero de 2025.}
+\end{figure}
+
+\textbf{Aporte de la profundización.} Las operaciones básicas permitían calcular un único promedio para una partición. \texttt{GROUP BY} permitió obtener un resultado agregado separado para cada estación dentro del mismo mes, respetando la estructura de la clave primaria.
+
+\textbf{Fuente oficial consultada:} Apache Cassandra, \emph{Data Manipulation}, versión 5.0, \url{https://cassandra.apache.org/doc/stable/cassandra/developing/cql/dml.html}, consulta registrada el 26/08/2026. \parencite{cassandra_dml}
+
+\subsection{Q9 --- PER PARTITION LIMIT \texorpdfstring{\,(profundización)}{ (profundización)}}
+
+\textbf{Finalidad:} mostrar solo tres observaciones de cada uno de varios meses de una estación.
+
+\begin{lstlisting}[language=CQL]
+SELECT estacion_id, anio, mes, fecha_hora, temp_aire
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'Rocha G3'
+  AND anio = 2025
+  AND mes IN (1, 2, 3)
+PER PARTITION LIMIT 3;
+\end{lstlisting}
+
+A diferencia de \texttt{LIMIT 3}, que limita todo el resultado, \texttt{PER PARTITION LIMIT 3} limita a tres filas cada partición consultada. La evidencia muestra exactamente nueve filas: tres de enero, tres de febrero y tres de marzo. La documentación oficial distingue ambos límites de esta manera. \parencite{cassandra_dml}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{imagenes/capturas/26_q9.png}
+\caption{Q9: tres filas por cada una de las particiones correspondientes a enero, febrero y marzo.}
+\end{figure}
+
+\textbf{Aporte de la profundización.} Esta operación permite obtener una muestra equilibrada cuando una consulta accede a varias particiones, evitando que el límite global sea consumido por una sola de ellas.
+
+\textbf{Fuente oficial consultada:} Apache Cassandra, \emph{Data Manipulation}, versión 5.0, \url{https://cassandra.apache.org/doc/stable/cassandra/developing/cql/dml.html}, consulta registrada el 26/08/2026. \parencite{cassandra_dml}
+
+\subsection{Q10 --- BATCH \texorpdfstring{\,(profundización)}{ (profundización)}}
+
+\textbf{Finalidad:} agrupar la escritura de una misma observación sintética en las dos tablas desnormalizadas.
+
+\begin{lstlisting}[language=CQL]
+BEGIN BATCH
+
+INSERT INTO mediciones_por_estacion_mes (
+  estacion_id, anio, mes, fecha_hora,
+  temp_aire, hum_relativa, precip_horario
+)
+VALUES (
+  'UTEC_PRUEBA_BATCH', 2025, 1,
+  '2025-01-15 15:30:00', 23.4, 67, 0.2
+);
+
+INSERT INTO mediciones_por_mes (
+  anio, mes, estacion_id, fecha_hora,
+  temp_aire, hum_relativa, precip_horario
+)
+VALUES (
+  2025, 1, 'UTEC_PRUEBA_BATCH',
+  '2025-01-15 15:30:00', 23.4, 67, 0.2
+);
+
+APPLY BATCH;
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\linewidth]{imagenes/capturas/27_q10_batch.png}
+\caption{Q10: ejecución de un \texttt{BATCH} con dos INSERT, uno por cada tabla desnormalizada.}
+\end{figure}
+
+La verificación posterior confirmó la presencia de la observación en ambas tablas.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\figwidth]{imagenes/capturas/28_q10_verificacion.png}
+\caption{Q10: verificación del registro \texttt{UTEC\_PRUEBA\_BATCH} en las dos tablas.}
+\end{figure}
+
+La documentación oficial indica que \texttt{BATCH} agrupa múltiples \texttt{INSERT}, \texttt{UPDATE} y \texttt{DELETE} en una sentencia. Por defecto los batches son \texttt{LOGGED} y utilizan un batch log para procurar que las mutaciones terminen todas o ninguna; sin embargo, los batches \textbf{no son un equivalente completo de las transacciones SQL} y existe una penalización cuando abarcan múltiples particiones. \parencite{cassandra_cql}
+
+\textbf{Aporte de la profundización.} En este modelo, una misma observación se representa en dos tablas. El batch permitió agrupar ambas escrituras relacionadas en una única operación CQL, mostrando una herramienta específica para manejar mutaciones asociadas al modelo desnormalizado.
+
+\textbf{Fuente oficial consultada:} Apache Cassandra, \emph{Cassandra Query Language (CQL)}, versión 5.0, \url{https://cassandra.apache.org/doc/stable/cassandra/developing/cql/cql_singlefile.html}, consulta registrada el 26/08/2026. \parencite{cassandra_cql}
