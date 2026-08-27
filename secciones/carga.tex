@@ -1,0 +1,89 @@
+\section{Carga de datos}
+
+\subsection{Preparación del conjunto unificado}
+
+Los tres archivos originales fueron \path{inumet_temperatura_del_aire.csv}, \path{inumet_humedad_relativa.csv} e \path{inumet_precipitacion_acumulada_horaria.csv}. El script \path{preparar_inumet.py} realizó una unión externa por \texttt{fecha} y \texttt{estacion\_id}, creó las columnas \texttt{anio} y \texttt{mes}, renombró la fecha como \texttt{fecha\_hora} y generó \path{inumet_completo.csv}.
+
+La verificación del archivo final mostró:
+\begin{itemize}
+    \item 385.668 filas;
+    \item 7 estaciones: Aeropuerto Melilla G3, Artigas G3, Colonia G3, Mercedes G3, Paso de los Toros G3, Rocha G3 y Salto G3;
+    \item años comprendidos entre 2020 y 2026;
+    \item ausencia de duplicados para las claves primarias utilizadas en las dos tablas.
+\end{itemize}
+
+Los valores faltantes se conservaron como celdas sin valor. La presencia de datos incompletos en algunas variables no impide conservar las demás mediciones de la misma estación y fecha.
+
+\subsection{Carga de la Tabla 1}
+
+El archivo unificado se copió al contenedor y se importó desde \texttt{/tmp/inumet\_completo.csv} con \texttt{COPY FROM}, una operación de \texttt{cqlsh} para importar datos desde CSV:
+
+\begin{lstlisting}[language=CQL]
+COPY mediciones_por_estacion_mes (
+  estacion_id,
+  anio,
+  mes,
+  fecha_hora,
+  temp_aire,
+  hum_relativa,
+  precip_horario
+)
+FROM '/tmp/inumet_completo.csv'
+WITH HEADER = TRUE
+AND NULL = '';
+\end{lstlisting}
+
+La evidencia real muestra que se procesaron e importaron las \textbf{385.668 filas}, sin filas omitidas.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/03_carga_tabla1.png}
+    \caption{Carga de 385.668 filas en \texttt{mediciones\_por\_estacion\_mes} mediante \texttt{COPY FROM}.}
+    \label{fig:carga1}
+\end{figure}
+
+\subsection{Carga de la Tabla 2}
+
+La misma fuente se cargó en \texttt{mediciones\_por\_mes}, ya que ambas tablas representan las mismas observaciones con distinta organización:
+
+\begin{lstlisting}[language=CQL]
+COPY mediciones_por_mes (
+  estacion_id,
+  anio,
+  mes,
+  fecha_hora,
+  temp_aire,
+  hum_relativa,
+  precip_horario
+)
+FROM '/tmp/inumet_completo.csv'
+WITH HEADER = TRUE
+AND NULL = '';
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/05_carga_tabla2.png}
+    \caption{Carga del mismo conjunto de 385.668 observaciones en \texttt{mediciones\_por\_mes}.}
+    \label{fig:carga2}
+\end{figure}
+
+\subsection{Verificación del volumen y de las particiones}
+
+La consigna exige al menos 40 filas repartidas en dos tablas con distintas partition keys y al menos una partición con 8 filas. El conjunto cargado supera ampliamente esos mínimos. Para Rocha G3 en enero de 2025, la Tabla 1 contiene \textbf{744 filas} en una única partición:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\linewidth]{imagenes/capturas/06_count_tabla1.png}
+    \caption{Conteo de 744 observaciones en la partición \texttt{('Rocha G3', 2025, 1)} de la Tabla 1.}
+    \label{fig:count1}
+\end{figure}
+
+Para enero de 2025, la Tabla 2 contiene \textbf{5.203 filas} en la partición \texttt{(2025, 1)}:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.66\linewidth]{imagenes/capturas/07_count_tabla2.png}
+    \caption{Conteo de 5.203 observaciones en la partición \texttt{(2025, 1)} de la Tabla 2.}
+    \label{fig:count2}
+\end{figure}
