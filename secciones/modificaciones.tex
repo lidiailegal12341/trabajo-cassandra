@@ -1,0 +1,162 @@
+\section{Modificación de datos}
+
+Para no alterar observaciones reales de INUMET, las cinco modificaciones se realizaron sobre registros sintéticos claramente identificables. En cada caso se documentó el estado anterior, la operación y el estado posterior, tal como exige la consigna.
+
+\subsection{INSERT de una nueva medición}
+
+Se verificó primero que no existiera la observación identificada como \texttt{PRUEBA\_UTEC}.
+
+\begin{lstlisting}[language=CQL]
+SELECT *
+FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'PRUEBA_UTEC'
+  AND anio = 2025
+  AND mes = 1
+  AND fecha_hora = '2025-01-15 12:30:00';
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/08_insert_antes.png}
+    \caption{Estado anterior al INSERT: no existía una fila con la clave primaria de \texttt{PRUEBA\_UTEC}.}
+    \label{fig:insert-antes}
+\end{figure}
+
+La nueva observación se insertó con temperatura 24,5, humedad 65 y precipitación 1,2:
+
+\begin{lstlisting}[language=CQL]
+INSERT INTO mediciones_por_estacion_mes (
+  estacion_id, anio, mes, fecha_hora,
+  temp_aire, hum_relativa, precip_horario
+)
+VALUES (
+  'PRUEBA_UTEC', 2025, 1,
+  '2025-01-15 12:30:00',
+  24.5, 65, 1.2
+);
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.78\linewidth]{imagenes/capturas/09_insert_operacion.png}
+    \caption{Ejecución del INSERT del registro sintético \texttt{PRUEBA\_UTEC}.}
+    \label{fig:insert-op}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/10_insert_despues.png}
+    \caption{Estado posterior al INSERT: la observación sintética aparece almacenada.}
+    \label{fig:insert-despues}
+\end{figure}
+
+\subsection{UPDATE de la temperatura}
+
+Se modificó únicamente \texttt{temp\_aire}, pasando de 24,5 a 27,0.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/11_update_antes.png}
+    \caption{Estado anterior al UPDATE: \texttt{temp\_aire = 24.5}.}
+    \label{fig:update-antes}
+\end{figure}
+
+\begin{lstlisting}[language=CQL]
+UPDATE mediciones_por_estacion_mes
+SET temp_aire = 27.0
+WHERE estacion_id = 'PRUEBA_UTEC'
+  AND anio = 2025
+  AND mes = 1
+  AND fecha_hora = '2025-01-15 12:30:00';
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/12_update_despues.png}
+    \caption{Estado posterior al UPDATE: la temperatura pasó a 27,0.}
+    \label{fig:update-despues}
+\end{figure}
+
+\subsection{Sobrescritura mediante INSERT sobre la misma PRIMARY KEY}
+
+A continuación se ejecutó un nuevo \texttt{INSERT} con la misma clave primaria del registro sintético, pero con nuevos valores. Cassandra no comprueba por defecto si la fila ya existía: una escritura con la misma clave actualiza los valores correspondientes, comportamiento de tipo \emph{upsert}. \parencite{cassandra_cql}
+
+\begin{lstlisting}[language=CQL]
+INSERT INTO mediciones_por_estacion_mes (
+  estacion_id, anio, mes, fecha_hora,
+  temp_aire, hum_relativa, precip_horario
+)
+VALUES (
+  'PRUEBA_UTEC', 2025, 1,
+  '2025-01-15 12:30:00',
+  18.0, 80, 5.5
+);
+\end{lstlisting}
+
+El estado anterior corresponde a la Figura~\ref{fig:update-despues}, con temperatura 27,0, humedad 65 y precipitación 1,2. La Figura~\ref{fig:upsert-despues} confirma que la misma clave contiene ahora los valores 18,0, 80 y 5,5.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/13_upsert_despues.png}
+    \caption{Estado posterior a la sobrescritura: la misma PRIMARY KEY conserva una única fila con los nuevos valores.}
+    \label{fig:upsert-despues}
+\end{figure}
+
+\subsection{INSERT USING TTL}
+
+Se utilizó el registro sintético \texttt{UTEC\_TTL} para demostrar expiración temporal. Antes de la operación no existía ninguna fila con esa clave.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/14_ttl_antes.png}
+    \caption{Estado anterior al INSERT con TTL: la fila \texttt{UTEC\_TTL} no existía.}
+    \label{fig:ttl-antes}
+\end{figure}
+
+\begin{lstlisting}[language=CQL]
+INSERT INTO mediciones_por_estacion_mes (
+  estacion_id, anio, mes, fecha_hora,
+  temp_aire, hum_relativa, precip_horario
+)
+VALUES (
+  'UTEC_TTL', 2025, 1,
+  '2025-01-15 13:00:00',
+  22.0, 70, 0.5
+)
+USING TTL 300;
+\end{lstlisting}
+
+\texttt{USING TTL 300} asignó un tiempo de vida de 300 segundos a los valores escritos. La función \texttt{TTL(temp\_aire)} permitió consultar el tiempo restante; en la captura se observan 282 segundos.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/15_ttl_despues.png}
+    \caption{Estado posterior al INSERT con TTL. La función \texttt{TTL(temp\_aire)} devuelve 282 segundos restantes.}
+    \label{fig:ttl-despues}
+\end{figure}
+
+\subsection{DELETE}
+
+Finalmente se eliminó el registro sintético \texttt{PRUEBA\_UTEC}. Antes del borrado todavía se observaban los valores establecidos por el upsert.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/16_delete_antes.png}
+    \caption{Estado anterior al DELETE del registro \texttt{PRUEBA\_UTEC}.}
+    \label{fig:delete-antes}
+\end{figure}
+
+\begin{lstlisting}[language=CQL]
+DELETE FROM mediciones_por_estacion_mes
+WHERE estacion_id = 'PRUEBA_UTEC'
+  AND anio = 2025
+  AND mes = 1
+  AND fecha_hora = '2025-01-15 12:30:00';
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\figwidth]{imagenes/capturas/17_delete_despues.png}
+    \caption{Estado posterior al DELETE: la consulta ya no devuelve la fila eliminada.}
+    \label{fig:delete-despues}
+\end{figure}
