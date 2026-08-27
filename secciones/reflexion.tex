@@ -1,0 +1,50 @@
+\section{Reflexión}
+
+\subsection{Operaciones más intuitivas y operaciones que requirieron mayor esfuerzo}
+
+Durante el desarrollo del trabajo, las operaciones más intuitivas fueron \texttt{SELECT}, \texttt{INSERT}, \texttt{UPDATE}, \texttt{DELETE} y \texttt{COPY FROM}. Las primeras cuatro presentan una sintaxis y una finalidad muy similares a SQL: consultar, insertar, modificar y eliminar información. \texttt{COPY FROM} también resultó sencillo conceptualmente porque su función fue importar el conjunto de datos desde un archivo CSV hacia Cassandra.
+
+\texttt{COUNT} y \texttt{AVG} también fueron familiares por su similitud con SQL, aunque en Cassandra fue necesario prestar atención al alcance de las particiones sobre las que se ejecutan. La operación \texttt{IN} tiene una sintaxis simple, pero requirió comprender que puede implicar el acceso a varias particiones. \texttt{GROUP BY} era un concepto conocido, aunque en Cassandra presentó una dificultad adicional porque el agrupamiento está restringido por la estructura y el orden de la primary key. \parencite{cassandra_dml}
+
+Las operaciones que requirieron mayor comprensión fueron \texttt{TTL}, \texttt{TTL()}, \texttt{IN}, \texttt{GROUP BY}, \texttt{PER PARTITION LIMIT} y \texttt{BATCH}. La dificultad no estuvo principalmente en escribir los comandos, sino en comprender su comportamiento, sus restricciones y cuándo era apropiado utilizarlos. Fue necesario distinguir el establecimiento de un tiempo de vida mediante \texttt{TTL} de la consulta del tiempo restante con \texttt{TTL()}, entender la diferencia entre un límite global y uno por partición, y estudiar las garantías y costos específicos de \texttt{BATCH}.
+
+La claridad del modelo influyó directamente en el aprendizaje. Al comienzo fue necesario comprender que la \texttt{PRIMARY KEY} de Cassandra no solo identifica una fila: también determina la partición y el orden interno mediante las clustering keys. Una vez definidas las dos preguntas principales ---una estación durante un mes y todas las estaciones durante un mes--- resultó más claro por qué existían dos tablas y qué consultas eran naturales sobre cada una. A partir de ese momento, muchas operaciones se volvieron más fáciles de razonar.
+
+La documentación disponible también fue un factor importante. Las operaciones básicas pudieron abordarse con el material de clase y la familiaridad con SQL. Las operaciones de profundización requirieron consultar documentación oficial de Apache Cassandra para entender sus restricciones. Esta diferencia mostró que CQL puede parecer similar a SQL en su sintaxis, pero sus reglas de consulta dependen fuertemente del modelo de particiones.
+
+\subsection{Limitaciones del modelo aplicado a las observaciones meteorológicas}
+
+La principal limitación del modelo es que las consultas importantes deben conocerse de antemano. Las dos tablas fueron diseñadas específicamente para dos patrones de acceso. Si surgiera una pregunta sustancialmente diferente, podría ser necesario crear otra tabla con una primary key distinta. Esta característica es coherente con la observación de Sadalage y Fowler de que los cambios en los patrones de consulta pueden obligar a cambiar el diseño de una familia de columnas. \parencite[cap.~10, p.~109]{sadalage2012}
+
+Otra limitación es la poca flexibilidad para filtrar por columnas que no forman parte de la primary key. Por ejemplo, buscar todas las observaciones del conjunto con \texttt{temp\_aire > 35} no corresponde naturalmente a las dos tablas actuales. Cassandra puede rechazar consultas que requieran filtrado amplio o permitirlas con \texttt{ALLOW FILTERING}; sin embargo, la documentación oficial advierte que ese tipo de filtrado puede implicar un escaneo amplio y un rendimiento impredecible. \parencite{cassandra_dml}
+
+El modelo también presenta redundancia. Las mismas observaciones se almacenan en las dos tablas con organizaciones distintas. Esta duplicación es deliberada y facilita dos patrones de lectura diferentes, pero aumenta el almacenamiento y obliga a mantener consistencia entre las representaciones si se modifica una observación real.
+
+Por último, Cassandra ofrece menos libertad que una base relacional para consultas ad hoc, relaciones complejas, JOINs y agregaciones arbitrarias. CQL no incorpora JOINs ni subconsultas tradicionales. \parencite[cap.~10, p.~106]{sadalage2012} Por ello, el modelo es fuerte cuando las preguntas principales están bien definidas, pero menos flexible ante análisis exploratorios no previstos.
+
+\subsection{Comparación con los demás modelos}
+
+Consideramos que Cassandra se adapta adecuadamente al problema planteado porque las observaciones meteorológicas forman una serie temporal con gran cantidad de filas, alta regularidad y patrones de consulta conocidos. Las bases de familia de columnas se utilizan en escenarios con grandes volúmenes y estructuras orientadas al acceso por claves; Cassandra es uno de los sistemas representativos de esta categoría. \parencite[cap.~10, pp.~98--109]{sadalage2012} \parencite[cap.~24, pp.~914--938]{elmasri2016}
+
+\begin{table}[H]
+\centering
+\caption{Comparación del modelo utilizado con otras alternativas de la unidad.}
+\label{tab:comparacion-modelos}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{2.6cm}XX}
+\toprule
+Modelo & ¿Qué ganaríamos? & ¿Qué perderíamos frente a Cassandra en este trabajo? \\
+\midrule
+Clave--valor (Redis) & Mayor simplicidad y acceso directo muy rápido cuando se conoce la clave. & Los rangos temporales, consultas mensuales y distintos recorridos de las observaciones serían menos naturales; el acceso principal se orientaría a claves concretas. \\
+\addlinespace
+Documental (MongoDB) & Mayor flexibilidad para documentos con estructuras distintas, arrays y subdocumentos. & Nuestro conjunto tiene una estructura bastante uniforme y temporal, por lo que esa flexibilidad no es el aspecto central; seguiría siendo necesario diseñar índices y organización para historiales extensos. \\
+\addlinespace
+Grafos (Neo4j) & Gran expresividad si el problema se centrara en relaciones, conexiones y recorridos entre estaciones, regiones o fenómenos. & El problema actual se centra en observaciones temporales, no en relaciones. Representar cada medición como parte de un grafo añadiría complejidad sin una ventaja clara para las consultas elegidas. \\
+\addlinespace
+Relacional & Mayor libertad para consultas no previstas, JOINs, integridad referencial, restricciones, transacciones y agregaciones flexibles. & Para patrones temporales conocidos y grandes volúmenes, Cassandra permite modelar directamente las lecturas por partición y facilita una estrategia de escalabilidad horizontal; a cambio se acepta desnormalización y menor libertad de consulta. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+En consecuencia, no consideramos que Cassandra sea superior a los demás modelos de manera general. Para \textbf{las preguntas que definimos en esta evaluación}, su combinación de partition keys y clustering keys permite organizar las mediciones por estación, mes y tiempo de forma natural. Si el objetivo cambiara hacia análisis exploratorio con muchas preguntas imprevistas, una base relacional podría resultar más conveniente. Si las estaciones tuvieran estructuras de observación muy diferentes, un modelo documental podría cobrar mayor interés; Redis sería adecuado para accesos simples por clave; y Neo4j sería más apropiado si las relaciones entre estaciones o fenómenos pasaran a ser el centro del problema.
+
+La principal conclusión es que la adecuación de Cassandra depende de haber definido previamente los patrones de consulta. Esa misma característica que permite construir tablas específicas y eficientes para las preguntas seleccionadas es también una de las principales limitaciones del modelo cuando las preguntas cambian.
