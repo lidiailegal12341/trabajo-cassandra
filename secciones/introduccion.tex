@@ -1,0 +1,10 @@
+\section*{Introducción}
+\addcontentsline{toc}{section}{Introducción}
+
+Para realizar esta evaluación se utilizaron datos meteorológicos públicos del Instituto Uruguayo de Meteorología (INUMET), correspondientes a temperatura del aire, humedad relativa y precipitación acumulada horaria. Aunque la actividad permitía trabajar con datos generados específicamente para la evaluación, se optó por utilizar datos reales para disponer de un escenario representativo y coherente sobre el cual aplicar el modelo de familia de columnas. Los tres conjuntos provienen del Catálogo Nacional de Datos Abiertos y corresponden a observaciones de estaciones automáticas de INUMET. \parencite{inumet_temp,inumet_hum,inumet_precip}
+
+Los archivos originales fueron integrados mediante un script en Python utilizando como campos comunes la fecha y el identificador de estación. El resultado fue \texttt{inumet\_completo.csv}, con las columnas \texttt{estacion\_id}, \texttt{anio}, \texttt{mes}, \texttt{fecha\_hora}, \texttt{temp\_aire}, \texttt{hum\_relativa} y \texttt{precip\_horario}. Cada fila representa una observación meteorológica realizada por una estación en un instante determinado.
+
+La verificación directa del archivo unificado mostró \textbf{385.668 filas}, \textbf{7 estaciones} y observaciones comprendidas entre \textbf{2020 y 2026}. El conjunto contiene algunos valores ausentes en las variables meteorológicas, que se conservaron como tales durante la integración. El modelo no está limitado al año 2025: ese año fue elegido únicamente como período de demostración para varias consultas y operaciones.
+
+Apache Cassandra fue el motor asignado para la evaluación. La ejecución se realizó localmente sobre Windows mediante Docker y \texttt{cqlsh}. La evidencia del entorno muestra \textbf{Apache Cassandra 5.0.9}, \textbf{cqlsh 6.2.0}, especificación CQL 3.4.7 y protocolo nativo v5.
