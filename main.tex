@@ -1,0 +1,96 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit}
+\usepackage{csquotes}
+\usepackage[backend=biber,style=apa,sorting=nyt]{biblatex}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\addbibresource{references.bib}
+
+\definecolor{codebg}{RGB}{247,247,247}
+\definecolor{codeframe}{RGB}{210,210,210}
+\definecolor{codekw}{RGB}{35,80,140}
+\definecolor{codecomment}{RGB}{90,110,90}
+
+\lstdefinelanguage{CQL}{
+  morekeywords={CREATE,KEYSPACE,WITH,REPLICATION,IF,NOT,EXISTS,TABLE,PRIMARY,KEY,CLUSTERING,ORDER,BY,ASC,DESC,USE,DESCRIBE,COPY,FROM,HEADER,NULL,SELECT,WHERE,AND,LIMIT,INSERT,INTO,VALUES,UPDATE,SET,USING,TTL,DELETE,COUNT,AVG,AS,IN,GROUP,PER,PARTITION,BEGIN,BATCH,APPLY,LOGGED,ALLOW,FILTERING},
+  sensitive=false,
+  morecomment=[l]{--},
+  morestring=[b]'
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecomment},
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+  aboveskip=0.8em,
+  belowskip=0.8em
+}
+
+\newcommand{\cql}[1]{\texttt{#1}}
+\newcommand{\figwidth}{0.94\linewidth}
+
+\title{\textbf{Modelado de observaciones meteorológicas de INUMET utilizando Apache Cassandra}}
+\author{[Integrante 1] \and [Integrante 2]}
+\date{Bases de Datos NoSQL --- Evaluación Continua 2026\\Licenciatura en Ingeniería de Datos e Inteligencia Artificial}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    {\Large Licenciatura en Ingeniería de Datos e Inteligencia Artificial\par}
+    \vspace{0.5cm}
+    {\large Bases de Datos NoSQL --- Unidad 2: Modelos de Datos NoSQL\par}
+    \vspace{1.8cm}
+    {\LARGE\bfseries Modelado de observaciones meteorológicas de INUMET utilizando Apache Cassandra\par}
+    \vspace{1.2cm}
+    {\large Tema 3 --- Familia de Columnas (Apache Cassandra)\par}
+    \vfill
+    \begin{tabular}{rl}
+      \textbf{Integrantes:} & [Integrante 1] \\
+                            & [Integrante 2] \\
+      \textbf{Curso:} & Bases de Datos NoSQL, 2026 \\
+      \textbf{Ámbito:} & Observaciones meteorológicas de INUMET en Uruguay \\
+    \end{tabular}
+    \vfill
+    {\large Agosto de 2026\par}
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+\input{secciones/introduccion}
+\input{secciones/modelado}
+\input{secciones/carga}
+\input{secciones/modificaciones}
+\input{secciones/consultas}
+\input{secciones/reflexion}
+
+\clearpage
+\printbibliography[title={Referencias}]
+
+\end{document}
